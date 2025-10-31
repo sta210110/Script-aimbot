@@ -1,245 +1,216 @@
--- AimAssist_UI_v3.4.lua
--- Fixed FOV circle center position (always centered)
--- Modern UI, Mobile + PC
+-- Aim Assist UI v3.3 (Mobile + PC)
+-- by GPT-5 | Safe Studio Script
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
-
-local player = Players.LocalPlayer
-player:WaitForChild("PlayerGui")
+local player = game.Players.LocalPlayer
 local camera = workspace.CurrentCamera
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
--- Default settings
-local SETTINGS = {
-	FOV = 150,
-	STRENGTH = 30,
-	MAX_DISTANCE = 150,
-	MENU_OPEN = false,
-	TOGGLE_POS = UDim2.new(0.5, -24, 0, 12) -- top center
-}
+-- ⚙️ Thông số mặc định
+local FOV = 60
+local Smoothness = 0.1
+local MaxDistance = 75
+local showCircle = true
+local menuVisible = false
 
-local function strengthToLerp(val)
-	local t = math.clamp(val, 1, 100) / 100
-	return 0.005 + t * 0.395
-end
+-- 🎯 Tạo vòng tròn aim
+local aimCircle = Drawing.new("Circle")
+aimCircle.Visible = showCircle
+aimCircle.Thickness = 2
+aimCircle.Radius = FOV
+aimCircle.Color = Color3.fromRGB(0, 255, 100)
+aimCircle.Transparency = 0.4
+aimCircle.Filled = false
 
--- === UI setup ===
+-- 🧱 GUI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AimAssist_UIv3_4"
+screenGui.Name = "AimAssistUI"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
--- ⚙️ Toggle Button
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Name = "ToggleButton"
-toggleBtn.Size = UDim2.new(0, 48, 0, 48)
-toggleBtn.Position = SETTINGS.TOGGLE_POS
-toggleBtn.Text = "⚙"
-toggleBtn.Font = Enum.Font.SourceSansBold
-toggleBtn.TextSize = 28
-toggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-toggleBtn.BackgroundColor3 = Color3.fromRGB(30,30,30)
-toggleBtn.BorderSizePixel = 0
-toggleBtn.Parent = screenGui
-local corner = Instance.new("UICorner", toggleBtn)
-corner.CornerRadius = UDim.new(0.25,0)
+-- Nút mở menu
+local openButton = Instance.new("TextButton")
+openButton.Size = UDim2.new(0, 140, 0, 40)
+openButton.Position = UDim2.new(0.5, -70, 0, 10)
+openButton.AnchorPoint = Vector2.new(0, 0)
+openButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+openButton.Text = "⚙️ Aimbot Menu"
+openButton.TextColor3 = Color3.new(1, 1, 1)
+openButton.Font = Enum.Font.GothamBold
+openButton.TextSize = 16
+openButton.Parent = screenGui
+openButton.AutoButtonColor = true
+openButton.Active = true
+openButton.Draggable = true -- nhấn giữ để di chuyển
 
--- === Menu ===
-local modal = Instance.new("Frame")
-modal.Size = UDim2.new(0, 340, 0, 320)
-modal.Position = UDim2.new(0.5, -170, 0.5, -160)
-modal.AnchorPoint = Vector2.new(0.5,0.5)
-modal.BackgroundColor3 = Color3.fromRGB(18,18,20)
-modal.Visible = SETTINGS.MENU_OPEN
-modal.Parent = screenGui
-local modalCorner = Instance.new("UICorner", modal)
-modalCorner.CornerRadius = UDim.new(0,12)
+-- Menu chính
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 260, 0, 220)
+frame.Position = UDim2.new(0.5, -130, 0.25, -110)
+frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+frame.BorderSizePixel = 0
+frame.Visible = false
+frame.Parent = screenGui
+frame.Active = true
+frame.Draggable = true
 
-local header = Instance.new("Frame", modal)
-header.Size = UDim2.new(1,0,0,56)
-header.BackgroundColor3 = Color3.fromRGB(24,24,26)
+local UICorner = Instance.new("UICorner", frame)
+UICorner.CornerRadius = UDim.new(0, 10)
 
-local title = Instance.new("TextLabel", header)
-title.Size = UDim2.new(1,-60,1,0)
-title.Position = UDim2.new(0,16,0,0)
-title.Text = "Aim Assist Settings"
-title.Font = Enum.Font.SourceSansSemibold
-title.TextSize = 20
-title.TextColor3 = Color3.fromRGB(230,230,230)
-title.BackgroundTransparency = 1
-title.TextXAlignment = Enum.TextXAlignment.Left
+-- Thanh kéo trên cùng (để kéo)
+local header = Instance.new("Frame")
+header.Size = UDim2.new(1, 0, 0, 25)
+header.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+header.Parent = frame
+local headerCorner = Instance.new("UICorner", header)
+headerCorner.CornerRadius = UDim.new(0, 10)
+local dragActive = false
+local dragInput, dragStart, startPos
 
-local close = Instance.new("TextButton", header)
-close.Size = UDim2.new(0,60,0,36)
-close.Position = UDim2.new(1,-68,0.5,-18)
-close.Text = "Close"
-close.Font = Enum.Font.SourceSans
-close.TextSize = 14
-close.BackgroundColor3 = Color3.fromRGB(40,40,42)
-close.TextColor3 = Color3.fromRGB(255,255,255)
-close.BorderSizePixel = 0
-close.MouseButton1Click:Connect(function()
-	modal.Visible = false
-	SETTINGS.MENU_OPEN = false
-end)
-
-local content = Instance.new("Frame", modal)
-content.Size = UDim2.new(1,-32,1,-80)
-content.Position = UDim2.new(0,16,0,64)
-content.BackgroundTransparency = 1
-
--- Simple slider builder
-local function makeSlider(parent, y, text, min, max, val)
-	local label = Instance.new("TextLabel", parent)
-	label.Position = UDim2.new(0,0,0,y)
-	label.Size = UDim2.new(1,0,0,24)
-	label.Text = text..": "..val
-	label.BackgroundTransparency = 1
-	label.TextColor3 = Color3.fromRGB(220,220,220)
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	
-	local bar = Instance.new("Frame", parent)
-	bar.Position = UDim2.new(0,0,0,y+26)
-	bar.Size = UDim2.new(1,0,0,8)
-	bar.BackgroundColor3 = Color3.fromRGB(50,50,55)
-	local fill = Instance.new("Frame", bar)
-	fill.BackgroundColor3 = Color3.fromRGB(90,160,255)
-	fill.Size = UDim2.new((val-min)/(max-min),0,1,0)
-	local drag = false
-	bar.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			drag = true
-		end
-	end)
-	UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			drag = false
-		end
-	end)
-	UIS.InputChanged:Connect(function(i)
-		if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			local pos = math.clamp((i.Position.X - bar.AbsolutePosition.X)/bar.AbsoluteSize.X,0,1)
-			val = math.floor(min + pos*(max-min))
-			fill.Size = UDim2.new(pos,0,1,0)
-			label.Text = text..": "..val
-		end
-	end)
-	return function() return val end
-end
-
-local getFOV = makeSlider(content, 0, "FOV", 40, 400, SETTINGS.FOV)
-local getSTR = makeSlider(content, 80, "Aim Strength", 1, 100, SETTINGS.STRENGTH)
-local getDIST = makeSlider(content, 160, "Max Distance", 20, 500, SETTINGS.MAX_DISTANCE)
-
-local apply = Instance.new("TextButton", modal)
-apply.Size = UDim2.new(0,160,0,40)
-apply.Position = UDim2.new(0.5,-80,1,-50)
-apply.Text = "Apply"
-apply.Font = Enum.Font.SourceSansBold
-apply.TextSize = 16
-apply.TextColor3 = Color3.fromRGB(255,255,255)
-apply.BackgroundColor3 = Color3.fromRGB(70,140,255)
-apply.BorderSizePixel = 0
-apply.MouseButton1Click:Connect(function()
-	SETTINGS.FOV = getFOV()
-	SETTINGS.STRENGTH = getSTR()
-	SETTINGS.MAX_DISTANCE = getDIST()
-	modal.Visible = false
-	SETTINGS.MENU_OPEN = false
-end)
-
--- === Toggle drag/move ===
-local holding = false
-local dragging = false
-local startPos, inputStart
-
-toggleBtn.InputBegan:Connect(function(input)
+header.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		holding = true
-		task.delay(0.2, function()
-			if holding then
-				dragging = true
-				startPos = toggleBtn.Position
-				inputStart = input.Position
-			end
-		end)
+		dragActive = true
+		dragStart = input.Position
+		startPos = frame.Position
 	end
 end)
-
-toggleBtn.InputEnded:Connect(function(input)
+header.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		if not dragging then
-			SETTINGS.MENU_OPEN = not SETTINGS.MENU_OPEN
-			modal.Visible = SETTINGS.MENU_OPEN
-		end
-		holding = false
-		dragging = false
+		dragActive = false
 	end
 end)
-
 UIS.InputChanged:Connect(function(input)
-	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-		local delta = input.Position - inputStart
-		toggleBtn.Position = startPos + UDim2.new(0, delta.X, 0, delta.Y)
+	if dragActive and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
 	end
 end)
 
--- === FOV Circle (always center) ===
-local fovCircle = Instance.new("Frame")
-fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
-fovCircle.Size = UDim2.new(0, SETTINGS.FOV*2, 0, SETTINGS.FOV*2)
-fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
-fovCircle.BackgroundTransparency = 0.85
-fovCircle.BackgroundColor3 = Color3.fromRGB(90,160,255)
-fovCircle.BorderSizePixel = 2
-fovCircle.BorderColor3 = Color3.fromRGB(90,160,255)
-fovCircle.Parent = screenGui
+local title = Instance.new("TextLabel")
+title.Text = "🎯 Aim Assist Settings"
+title.Size = UDim2.new(1, 0, 0, 25)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = header
 
-local circleCorner = Instance.new("UICorner", fovCircle)
-circleCorner.CornerRadius = UDim.new(1,0)
+-- 🧩 Hàm tạo slider
+local function createSlider(name, min, max, default, step, yPos, callback)
+	local label = Instance.new("TextLabel")
+	label.Text = name .. ": " .. default
+	label.Size = UDim2.new(1, -20, 0, 20)
+	label.Position = UDim2.new(0, 10, 0, yPos)
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.BackgroundTransparency = 1
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 14
+	label.Parent = frame
 
--- === Aim Logic ===
-local function getCenter()
-	local v = camera.ViewportSize
-	return Vector2.new(v.X/2, v.Y/2)
+	local slider = Instance.new("TextButton")
+	slider.Size = UDim2.new(1, -20, 0, 10)
+	slider.Position = UDim2.new(0, 10, 0, yPos + 20)
+	slider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	slider.Text = ""
+	slider.AutoButtonColor = false
+	slider.Parent = frame
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+	fill.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+	fill.Parent = slider
+
+	slider.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			local moveConn
+			moveConn = UIS.InputChanged:Connect(function(move)
+				if move.UserInputType == Enum.UserInputType.MouseMovement or move.UserInputType == Enum.UserInputType.Touch then
+					local rel = math.clamp((move.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+					local val = math.floor(min + (max - min) * rel)
+					fill.Size = UDim2.new(rel, 0, 1, 0)
+					label.Text = name .. ": " .. val
+					callback(val)
+				end
+			end)
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					moveConn:Disconnect()
+				end
+			end)
+		end
+	end)
 end
 
-local function getTarget()
-	local c = getCenter()
-	local best, bestDist
-	for _,plr in ipairs(Players:GetPlayers()) do
-		if plr~=player and plr.Character then
-			local head = plr.Character:FindFirstChild("Head")
-			local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-			if head and hum and hum.Health>0 then
-				local pos,vis = camera:WorldToViewportPoint(head.Position)
-				if vis then
-					local distPixel = (Vector2.new(pos.X,pos.Y)-c).Magnitude
-					local distWorld = (camera.CFrame.Position - head.Position).Magnitude
-					if distPixel <= SETTINGS.FOV and distWorld <= SETTINGS.MAX_DISTANCE then
-						if not best or distPixel < bestDist then
-							best = head.Position
-							bestDist = distPixel
-						end
+-- 🛠 Slider: FOV, Smoothness, Distance
+createSlider("FOV", 20, 200, FOV, 1, 40, function(val)
+	FOV = val
+	aimCircle.Radius = FOV
+end)
+createSlider("Smoothness", 1, 100, math.floor(Smoothness * 100), 1, 90, function(val)
+	Smoothness = val / 100
+end)
+createSlider("Max Distance", 25, 300, MaxDistance, 1, 140, function(val)
+	MaxDistance = val
+end)
+
+-- 🔘 Nút đóng menu
+local closeButton = Instance.new("TextButton")
+closeButton.Size = UDim2.new(0, 100, 0, 30)
+closeButton.Position = UDim2.new(0.5, -50, 1, -40)
+closeButton.Text = "Đóng"
+closeButton.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextSize = 16
+closeButton.Parent = frame
+local closeCorner = Instance.new("UICorner", closeButton)
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeButton.MouseButton1Click:Connect(function()
+	frame.Visible = false
+	menuVisible = false
+end)
+
+-- 🔘 Nút mở
+openButton.MouseButton1Click:Connect(function()
+	menuVisible = not menuVisible
+	frame.Visible = menuVisible
+end)
+
+-- 🎯 Hàm chọn người gần nhất
+local function getClosestPlayer()
+	local closest = nil
+	local shortestDist = FOV
+	for _, plr in pairs(game.Players:GetPlayers()) do
+		if plr ~= player and plr.Character and plr.Character:FindFirstChild("Head") then
+			local pos, visible = camera:WorldToViewportPoint(plr.Character.Head.Position)
+			if visible then
+				local dist2D = (Vector2.new(pos.X, pos.Y) - Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)).Magnitude
+				local dist3D = (plr.Character.Head.Position - camera.CFrame.Position).Magnitude
+				if dist2D < FOV and dist3D <= MaxDistance then
+					if dist2D < shortestDist then
+						shortestDist = dist2D
+						closest = plr
 					end
 				end
 			end
 		end
 	end
-	return best
+	return closest
 end
 
-RunService.RenderStepped:Connect(function()
-	local t = getTarget()
-	fovCircle.Size = UDim2.new(0, SETTINGS.FOV*2, 0, SETTINGS.FOV*2)
-	fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
-	
-	if t then
-		camera.CFrame = camera.CFrame:Lerp(CFrame.new(camera.CFrame.Position, t), strengthToLerp(SETTINGS.STRENGTH))
-		toggleBtn.BackgroundColor3 = Color3.fromRGB(60,140,255)
-	else
-		toggleBtn.BackgroundColor3 = Color3.fromRGB(30,30,30)
+-- 🔁 Update vòng tròn & aim
+RS.RenderStepped:Connect(function()
+	aimCircle.Position = Vector2.new(camera.ViewportSize.X/2, camera.ViewportSize.Y/2)
+	aimCircle.Radius = FOV
+
+	local target = getClosestPlayer()
+	if target then
+		local head = target.Character:FindFirstChild("Head")
+		if head then
+			local targetCF = CFrame.new(camera.CFrame.Position, head.Position)
+			camera.CFrame = camera.CFrame:Lerp(targetCF, Smoothness)
+		end
 	end
 end)
